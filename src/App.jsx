@@ -121,7 +121,7 @@ function App() {
       <header className="header">
         <div className="logo">
           <Wallet size={28} />
-          <h1>FinansialPro</h1>
+          <h1>ZyFinansialPro</h1>
         </div>
         <div className="user-info">
           <span>Halo, User</span>
