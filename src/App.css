@@ -24,15 +24,68 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   justify-content: center;
   align-items: center;
-  background: #e2e8f0;
+  background: #f1f5f9;
 }
 .login-card {
   background: white;
   padding: 40px;
-  border-radius: 12px;
+  border-radius: 16px;
   text-align: center;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+  width: 100%;
+  max-width: 400px;
 }
+
+.login-form input {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.email-btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  margin-top: 10px;
+  transition: 0.2s;
+}
+.email-btn:hover { background: #1d4ed8; }
+
+.divider {
+  margin: 20px 0;
+  position: relative;
+  text-align: center;
+}
+.divider::before {
+  content: ''; position: absolute; top: 50%; left: 0; right: 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.divider span {
+  background: white; padding: 0 10px; color: #94a3b8; font-size: 0.8rem; position: relative;
+}
+
+.google-btn {
+  width: 100%;
+  background: white; border: 1px solid #cbd5e1;
+  padding: 12px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-weight: 600; color: var(--text-dark);
+  transition: 0.2s;
+}
+.google-btn:hover { background: #f8fafc; }
+
+.toggle-text {
+  margin-top: 20px; font-size: 0.9rem; color: #64748b;
+}
+.toggle-text span {
+  color: var(--primary); font-weight: 600; cursor: pointer;
+}
+.toggle-text span:hover { text-decoration: underline; }
+
 .brand-logo { color: var(--primary); margin-bottom: 5px; }
 .google-btn {
   background: white; border: 1px solid #cbd5e1;
