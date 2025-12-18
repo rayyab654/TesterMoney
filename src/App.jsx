@@ -1,260 +1,202 @@
 import { useState, useEffect } from 'react';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
-import { Doughnut } from 'react-chartjs-2';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { Trash2, Download, FileText, PlusCircle, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
-import './index.css';
-
-// Registrasi Komponen Chart
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
+import './App.css';
+import { Trash2, LogOut, LogIn, PlusCircle } from 'lucide-react';
+import { auth, loginWithGoogle, logout } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 function App() {
-  // --- STATE MANAGEMENT ---
-  const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('keuangan-pro-data');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   
-  // Input States
-  const [desc, setDesc] = useState('');
+  // State Data
+  const [transactions, setTransactions] = useState([]);
+  const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState('expense');
-  const [filter, setFilter] = useState('monthly'); // Default lihat per bulan
+  const [filter, setFilter] = useState('monthly'); // Default bulan ini
 
-  // --- EFFECTS ---
+  // 1. CEK STATUS LOGIN
   useEffect(() => {
-    localStorage.setItem('keuangan-pro-data', JSON.stringify(transactions));
-  }, [transactions]);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // --- ACTIONS ---
+  // 2. LOAD DATA USER DARI LOCALSTORAGE
+  useEffect(() => {
+    if (user) {
+      const storageKey = `keuangan-${user.uid}`; // Kunci unik per user
+      const saved = localStorage.getItem(storageKey);
+      setTransactions(saved ? JSON.parse(saved) : []);
+    }
+  }, [user]);
+
+  // 3. SIMPAN DATA OTOMATIS
+  useEffect(() => {
+    if (user) {
+      const storageKey = `keuangan-${user.uid}`;
+      localStorage.setItem(storageKey, JSON.stringify(transactions));
+    }
+  }, [transactions, user]);
+
+  // LOGIKA TAMBAH TRANSAKSI
   const addTransaction = (e) => {
     e.preventDefault();
-    if (!desc || !amount) return;
-    const newTx = {
+    if (!description || !amount) return;
+    const newTransaction = {
       id: Date.now(),
-      desc,
+      description,
       amount: parseFloat(amount),
       type,
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
     };
-    setTransactions([newTx, ...transactions]);
-    setDesc('');
+    setTransactions([newTransaction, ...transactions]);
+    setDescription('');
     setAmount('');
   };
 
   const deleteTransaction = (id) => {
-    if(confirm('Hapus data ini?')) {
-      setTransactions(transactions.filter(t => t.id !== id));
+    if(confirm('Hapus transaksi ini?')) {
+        setTransactions(transactions.filter(t => t.id !== id));
     }
   };
 
-  // --- DATA PROCESSING & FILTERING ---
-  const getFilteredData = () => {
+  // LOGIKA FILTER WAKTU (Harian, Mingguan, Bulanan, Tahunan)
+  const getFilteredTransactions = () => {
     const now = new Date();
     return transactions.filter(t => {
       const tDate = new Date(t.date);
+      
+      // Reset jam agar perbandingan tanggal akurat
+      const isSameDay = (d1, d2) => d1.toDateString() === d2.toDateString();
+      const isSameMonth = (d1, d2) => d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
+      const isSameYear = (d1, d2) => d1.getFullYear() === d2.getFullYear();
+
       if (filter === 'all') return true;
-      if (filter === 'daily') return tDate.toDateString() === now.toDateString();
-      if (filter === 'monthly') return tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear();
-      if (filter === 'yearly') return tDate.getFullYear() === now.getFullYear();
+      if (filter === 'daily') return isSameDay(tDate, now);
+      if (filter === 'weekly') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return tDate >= oneWeekAgo;
+      }
+      if (filter === 'monthly') return isSameMonth(tDate, now);
+      if (filter === 'yearly') return isSameYear(tDate, now);
       return true;
     });
   };
 
-  const filteredData = getFilteredData();
+  const filteredData = getFilteredTransactions();
   
-  // Hitung Total
-  const totalIncome = filteredData.filter(t => t.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
-  const totalExpense = filteredData.filter(t => t.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
+  // HITUNG SALDO
+  const calculateTotal = (type) => filteredData.filter(t => t.type === type).reduce((acc, c) => acc + c.amount, 0);
+  const totalIncome = calculateTotal('income');
+  const totalExpense = calculateTotal('expense');
   const balance = totalIncome - totalExpense;
 
-  // Format Rupiah
-  const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
+  // FORMAT RUPIAH
+  const formatRupiah = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
-  // --- CHART CONFIGURATION ---
-  const chartData = {
-    labels: ['Pemasukan', 'Pengeluaran'],
-    datasets: [
-      {
-        data: [totalIncome, totalExpense],
-        backgroundColor: ['#10b981', '#ef4444'], // Hijau & Merah
-        borderColor: ['#059669', '#dc2626'],
-        borderWidth: 1,
-      },
-    ],
-  };
+  if (loading) return <div className="loading-screen">Memuat Aplikasi...</div>;
 
-  // --- EXPORT FUNCTIONS ---
-  const exportExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(filteredData.map(t => ({
-      Tanggal: new Date(t.date).toLocaleDateString('id-ID'),
-      Keterangan: t.desc,
-      Tipe: t.type === 'income' ? 'Pemasukan' : 'Pengeluaran',
-      Jumlah: t.amount
-    })));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Laporan");
-    XLSX.writeFile(wb, `Laporan_Keuangan_${filter}.xlsx`);
-  };
+  // TAMPILAN JIKA BELUM LOGIN
+  if (!user) {
+    return (
+      <div className="login-container">
+        <div className="login-card">
+          <h1>💸 DompetKu</h1>
+          <p>Catat pengeluaran harian, mingguan, hingga tahunan dengan mudah.</p>
+          <button onClick={loginWithGoogle} className="google-btn">
+            <LogIn size={18} /> Masuk dengan Google
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.text(`Laporan Keuangan (${filter})`, 14, 15);
-    doc.autoTable({
-      head: [['Tanggal', 'Keterangan', 'Tipe', 'Jumlah']],
-      body: filteredData.map(t => [
-        new Date(t.date).toLocaleDateString('id-ID'),
-        t.desc,
-        t.type === 'income' ? 'Masuk' : 'Keluar',
-        formatRp(t.amount)
-      ]),
-      startY: 20
-    });
-    doc.save(`Laporan_Keuangan_${filter}.pdf`);
-  };
-
+  // TAMPILAN UTAMA (DASHBOARD)
   return (
-    <div className="layout">
-      {/* HEADER */}
-      <header className="header">
-        <div className="logo">
-          <Wallet size={28} />
-          <h1>ZyFinansialPro</h1>
-        </div>
+    <div className="container">
+      {/* HEADER RESPONSIVE */}
+      <header className="app-header">
         <div className="user-info">
-          <span>Halo, User</span>
-          <div className="avatar">U</div>
+          <img src={user.photoURL} alt="User" className="avatar"/>
+          <div>
+            <h3>Hi, {user.displayName.split(' ')[0]}</h3>
+            <span className="badge">Online</span>
+          </div>
         </div>
+        <button onClick={logout} className="logout-btn" title="Keluar">
+            <LogOut size={20} />
+        </button>
       </header>
 
-      <div className="main-content">
-        {/* SIDEBAR / CONTROLS */}
-        <aside className="sidebar">
-          <div className="card input-card">
-            <h3><PlusCircle size={18} /> Transaksi Baru</h3>
-            <form onSubmit={addTransaction}>
-              <div className="form-group">
-                <label>Keterangan</label>
-                <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Contoh: Gaji, Makan..." />
-              </div>
-              <div className="form-group">
-                <label>Nominal (Rp)</label>
-                <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" />
-              </div>
-              <div className="form-group">
-                <label>Tipe</label>
-                <div className="radio-group">
-                  <label className={`radio-label ${type === 'income' ? 'active-inc' : ''}`}>
-                    <input type="radio" name="type" value="income" checked={type === 'income'} onChange={() => setType('income')} /> Pemasukan
-                  </label>
-                  <label className={`radio-label ${type === 'expense' ? 'active-exp' : ''}`}>
-                    <input type="radio" name="type" value="expense" checked={type === 'expense'} onChange={() => setType('expense')} /> Pengeluaran
-                  </label>
-                </div>
-              </div>
-              <button type="submit" className="btn-primary">Simpan Transaksi</button>
-            </form>
-          </div>
+      {/* FILTER & SALDO UTAMA */}
+      <div className="filter-bar">
+        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="daily">Hari Ini</option>
+          <option value="weekly">Minggu Ini</option>
+          <option value="monthly">Bulan Ini</option>
+          <option value="yearly">Tahun Ini</option>
+          <option value="all">Semua Data</option>
+        </select>
+      </div>
 
-          <div className="card export-card">
-            <h3>Export Laporan</h3>
-            <div className="btn-group">
-              <button onClick={exportExcel} className="btn-outline success"><FileText size={16}/> Excel</button>
-              <button onClick={exportPDF} className="btn-outline danger"><Download size={16}/> PDF</button>
-            </div>
-          </div>
-        </aside>
+      <div className="balance-card">
+        <p>Sisa Saldo ({filter})</p>
+        <h2>{formatRupiah(balance)}</h2>
+      </div>
 
-        {/* DASHBOARD AREA */}
-        <main className="dashboard">
-          {/* FILTER BAR */}
-          <div className="filter-bar">
-            <h2>Dashboard Ringkasan</h2>
-            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-              <option value="all">Semua Data</option>
-              <option value="daily">Hari Ini</option>
-              <option value="monthly">Bulan Ini</option>
-              <option value="yearly">Tahun Ini</option>
+      <div className="summary-grid">
+        <div className="box income">
+          <span>Pemasukan</span>
+          <h4>{formatRupiah(totalIncome)}</h4>
+        </div>
+        <div className="box expense">
+          <span>Pengeluaran</span>
+          <h4>{formatRupiah(totalExpense)}</h4>
+        </div>
+      </div>
+
+      {/* FORM INPUT */}
+      <div className="card input-card">
+        <h4>Tambah Transaksi</h4>
+        <form onSubmit={addTransaction}>
+          <div className="form-group">
+             <input type="text" placeholder="Keperluan (mis: Bensin)" value={description} onChange={e => setDescription(e.target.value)} required/>
+          </div>
+          <div className="form-row">
+            <input type="number" placeholder="Rp" value={amount} onChange={e => setAmount(e.target.value)} required/>
+            <select value={type} onChange={e => setType(e.target.value)}>
+                <option value="expense">Keluar</option>
+                <option value="income">Masuk</option>
             </select>
           </div>
+          <button type="submit" className="save-btn"><PlusCircle size={16}/> Simpan</button>
+        </form>
+      </div>
 
-          {/* SUMMARY CARDS */}
-          <div className="stats-grid">
-            <div className="stat-card balance">
-              <div className="icon"><Wallet /></div>
-              <div>
-                <small>Saldo Saat Ini</small>
-                <h2>{formatRp(balance)}</h2>
+      {/* LIST RIWAYAT */}
+      <div className="card list-card">
+        <h4>Riwayat ({filteredData.length})</h4>
+        <ul className="transaction-list">
+          {filteredData.length === 0 ? <p className="empty-state">Belum ada data.</p> : 
+           filteredData.map(t => (
+            <li key={t.id} className={`item ${t.type}`}>
+              <div className="item-left">
+                <strong>{t.description}</strong>
+                <small>{new Date(t.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}</small>
               </div>
-            </div>
-            <div className="stat-card income">
-              <div className="icon"><TrendingUp /></div>
-              <div>
-                <small>Total Pemasukan</small>
-                <h2>{formatRp(totalIncome)}</h2>
+              <div className="item-right">
+                <span className={t.type}>
+                    {t.type === 'expense' ? '-' : '+'} {formatRupiah(t.amount)}
+                </span>
+                <button onClick={() => deleteTransaction(t.id)} className="del-btn"><Trash2 size={16}/></button>
               </div>
-            </div>
-            <div className="stat-card expense">
-              <div className="icon"><TrendingDown /></div>
-              <div>
-                <small>Total Pengeluaran</small>
-                <h2>{formatRp(totalExpense)}</h2>
-              </div>
-            </div>
-          </div>
-
-          <div className="content-split">
-            {/* GRAPHIC */}
-            <div className="card chart-card">
-              <h3>Statistik {filter === 'monthly' ? 'Bulanan' : ''}</h3>
-              <div className="chart-container">
-                {totalIncome === 0 && totalExpense === 0 ? 
-                  <p className="no-data">Belum ada data grafik</p> : 
-                  <Doughnut data={chartData} options={{ maintainAspectRatio: false }} />
-                }
-              </div>
-            </div>
-
-            {/* TABLE */}
-            <div className="card table-card">
-              <h3>Riwayat Transaksi</h3>
-              <div className="table-responsive">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Tanggal</th>
-                      <th>Keterangan</th>
-                      <th>Nominal</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredData.length === 0 ? (
-                      <tr><td colSpan="4" className="text-center">Data kosong</td></tr>
-                    ) : (
-                      filteredData.map(t => (
-                        <tr key={t.id}>
-                          <td>{new Date(t.date).toLocaleDateString('id-ID')}</td>
-                          <td>{t.desc}</td>
-                          <td className={t.type === 'income' ? 'text-green' : 'text-red'}>
-                            {t.type === 'income' ? '+' : '-'} {formatRp(t.amount)}
-                          </td>
-                          <td>
-                            <button onClick={() => deleteTransaction(t.id)} className="btn-icon">
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </main>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
